@@ -114,6 +114,15 @@
 - 스태거 `sleep_for` → `sleep_until` 변경 — 배치 대기 시간 누적 버그 수정
 - 아키텍처 다이어그램 및 스트레스 테스트 결과 문서화
 
+### UPDATE
+**2026-06-07**
+- AsyncLogger: LLM → Discord 에러 파이프라인 구현 완료
+- WinHTTP 기반 LM Studio(localhost:1234) 에러 분석 요청 (OpenAI 호환 API)
+- Discord 웹훅 embed 전송 (WinHTTP HTTPS, 추가 DLL 없음)
+- `m_aiQueue` 분리 — 에러 디스패치를 로거 스레드에서 처리, IOCP 워커 블로킹 제거
+- 60초 쿨다운으로 에러 폭발 시 LLM 과호출 방지
+- `Configure()` API 추가 — LLM 엔드포인트 / 웹훅 미설정 시 파이프라인 자동 비활성화
+
 ---
 
 ## 시스템 아키텍처
@@ -235,13 +244,16 @@ Node.js   :  8 /  8 파일 완성 (100%)
 ## 완료된 작업
 - [x] 더미 클라이언트 제작 (C++ 스레드 풀 기반)
 - [x] 10,000명 동시 접속 테스트 — 성공률 100%, 259,336 pkt/s
-- [ ] Discord 봇 연동 (에러 로그 실시간 알림)
+- [x] LLM → Discord 에러 파이프라인 (AsyncLogger, WinHTTP)
+- [ ] 더미 클라이언트 행동 다양화 (실제 유저 시뮬레이션)
+- [ ] 인증 서버 구축 (JWT, bcrypt, Redis 세션)
 - [ ] 성능 최적화 (메모리 풀 등)
 
 ---
 
 ## AI 파이프라인 구조
 
+### 개발 파이프라인 (코드 생성)
 ```
 [Qwen 2.5 Coder 14B — 로컬 폐쇄망]
         ↓
@@ -254,4 +266,19 @@ C++ / Node.js 코드 생성
 코드 리뷰 & 버그 수정
         ↓
 프로젝트 반영
+```
+
+### 런타임 에러 파이프라인
+```
+게임 서버 에러 발생
+        ↓
+AsyncLogger::LogError()
+        ↓ (m_aiQueue — 로거 스레드, IOCP 워커 블로킹 없음)
+SendToAI() — WinHTTP POST → LM Studio localhost:1234
+        ↓
+LLM 원인 분석 + 해결 방법 생성
+        ↓
+SendToDiscord() — WinHTTP HTTPS → Discord 웹훅
+        ↓
+Discord 채널에 에러 embed 알람
 ```
