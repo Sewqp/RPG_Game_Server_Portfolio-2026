@@ -13,11 +13,11 @@
 std::atomic<uint64_t> GSessionIdAllocator{ 0 };
 
 static constexpr uint16_t    SERVER_PORT = 9000;
-static constexpr const char* DB_HOST = "127.0.0.1";
-static constexpr const char* DB_USER = "root";
-static constexpr const char* DB_PASS = "";
-static constexpr const char* DB_SCHEMA = "game_server_schema";
-static constexpr const char* REDIS_HOST = "127.0.0.1";
+static constexpr const char* DB_HOST     = "127.0.0.1";
+static constexpr const char* DB_USER     = "root";
+static constexpr const char* DB_PASS     = "";
+static constexpr const char* DB_SCHEMA   = "game_server_schema";
+static constexpr const char* REDIS_HOST  = "127.0.0.1";
 
 int main() {
     SetConsoleOutputCP(CP_UTF8);
