@@ -2,6 +2,7 @@
 #include "AsyncLogger.h"
 #include "DBManager.h"
 #include "RedisManager.h"
+#include "RoomManager.h"
 #include <cstring>
 
 PacketHandler& PacketHandler::GetInstance() {
@@ -42,6 +43,12 @@ void PacketHandler::Handle(std::shared_ptr<Session> session, std::vector<char>& 
         break;
     case PacketID::AUCTION_INFO:
         OnAuction(session, reinterpret_cast<PKT_Auction*>(packet.data()));
+        break;
+    case PacketID::ENTER_ROOM:
+        OnEnterRoom(session, reinterpret_cast<PKT_EnterRoom*>(packet.data()));
+        break;
+    case PacketID::LEAVE_ROOM:
+        OnLeaveRoom(session, reinterpret_cast<PKT_LeaveRoom*>(packet.data()));
         break;
     default:
         AsyncLogger::GetInstance().LogError(
@@ -116,4 +123,31 @@ void PacketHandler::OnAuction(std::shared_ptr<Session> session, PKT_Auction* pac
         AsyncLogger::GetInstance().LogError(
             "AUCTION_INFO DB 저장 실패. auction_id=" + std::to_string(packet->auction_id));
     }
+}
+
+void PacketHandler::OnEnterRoom(std::shared_ptr<Session> session, PKT_EnterRoom* packet) {
+    auto room = RoomManager::GetInstance().GetOrCreateRoom(packet->map_id);
+    if (!room->Enter(session)) {
+        // 만석 — 새 룸 생성
+        room = RoomManager::GetInstance().CreateRoom();
+        room->Enter(session);
+    }
+    AsyncLogger::GetInstance().Log(
+        "ENTER_ROOM 처리. character_id=" + std::to_string(packet->character_id) +
+        " map_id=" + std::to_string(packet->map_id) +
+        " room_id=" + std::to_string(room->GetRoomId()) +
+        " players=" + std::to_string(room->GetPlayerCount()));
+}
+
+void PacketHandler::OnLeaveRoom(std::shared_ptr<Session> session, PKT_LeaveRoom* packet) {
+    auto room = RoomManager::GetInstance().GetRoom(packet->map_id);
+    if (!room) return;
+
+    room->Leave(session->GetId());
+    if (room->GetPlayerCount() == 0) {
+        RoomManager::GetInstance().DestroyRoom(room->GetRoomId());
+    }
+    AsyncLogger::GetInstance().Log(
+        "LEAVE_ROOM 처리. character_id=" + std::to_string(packet->character_id) +
+        " map_id=" + std::to_string(packet->map_id));
 }

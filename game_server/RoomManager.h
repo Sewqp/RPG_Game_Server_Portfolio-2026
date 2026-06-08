@@ -12,6 +12,7 @@ public:
     std::shared_ptr<Room> CreateRoom();
     void                  DestroyRoom(uint32_t roomId);
     std::shared_ptr<Room> GetRoom(uint32_t roomId);
+    std::shared_ptr<Room> GetOrCreateRoom(uint32_t mapId);
 
 private:
     RoomManager() = default;

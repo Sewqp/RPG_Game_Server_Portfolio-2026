@@ -12,7 +12,9 @@ enum class PacketID : uint16_t {
     ITEM_DICTIONARY_INFO = 1004,
     ITEM_INSTANCE_INFO   = 1005,
     INVENTORY_INFO       = 1006,
-    AUCTION_INFO         = 1007
+    AUCTION_INFO         = 1007,
+    ENTER_ROOM           = 1008,
+    LEAVE_ROOM           = 1009
 };
 
 enum class Status       : uint8_t  { NORMAL = 0, BANNED = 1 };
@@ -121,6 +123,20 @@ struct PKT_Auction {
     TradeStatus trade_status;
     char created_at[20];
     char expired_at[20];
+};
+
+// [룸 입장 패킷] map_id 기반 룸 배정
+struct PKT_EnterRoom {
+    PacketHeader header;
+    uint64_t character_id;
+    uint32_t map_id;
+};
+
+// [룸 퇴장 패킷]
+struct PKT_LeaveRoom {
+    PacketHeader header;
+    uint64_t character_id;
+    uint32_t map_id;
 };
 
 #pragma pack(pop)

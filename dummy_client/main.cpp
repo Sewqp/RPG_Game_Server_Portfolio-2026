@@ -13,7 +13,9 @@
 #include <vector>
 #include <chrono>
 #include <algorithm>
+#include <random>
 #include <cstring>
+#include <cstdio>
 
 #include "../game_server/Packet.h"
 #include "DummyClient.h"
@@ -22,46 +24,67 @@
 // 설정
 // -------------------------------------------------------
 constexpr int      TARGET_CONNECTIONS = 10000;
-constexpr int      PACKETS_PER_CLIENT = 100;
 constexpr char     SERVER_IP[]        = "127.0.0.1";
 constexpr uint16_t SERVER_PORT        = 9000;
 
-// 100개씩 3ms 간격 — 300ms 램프업 (100 배치 × 3ms)
+// 100개씩 3ms 간격 — 300ms 램프업
 constexpr int BATCH_SIZE     = 100;
 constexpr int BATCH_DELAY_MS = 3;
 
-// 스레드 풀 크기 — 최소 32, 최대 hw_concurrency*2
-// 각 스레드가 TARGET_CONNECTIONS/WORKER_THREADS 개의 소켓을 순차 관리
+// 시나리오 루프 횟수 (맵 이동 + 아이템 획득)
+constexpr int SCENARIO_LOOPS = 25;
+
+// 아이템 획득 확률 (10 중 3 = 30%)
+constexpr int ITEM_DROP_CHANCE = 3;
+
 const int WORKER_THREADS = std::max(32, (int)std::thread::hardware_concurrency() * 2);
 
 // -------------------------------------------------------
 // 전역 통계 / 동기화
 // -------------------------------------------------------
-std::atomic<int>  g_connected   { 0 };
-std::atomic<int>  g_failed      { 0 };
-std::atomic<int>  g_packetsSent { 0 };
-std::atomic<int>  g_sendErrors  { 0 };
-std::atomic<bool> g_done        { false };
+std::atomic<int>    g_connected   { 0 };
+std::atomic<int>    g_failed      { 0 };
+std::atomic<int>    g_packetsSent { 0 };
+std::atomic<int>    g_sendErrors  { 0 };
+std::atomic<int64_t> g_bytesSent  { 0 };
+std::atomic<bool>   g_done        { false };
 
-// 연결 페이즈 완료 후 전송 페이즈 시작
 std::latch g_connectLatch(TARGET_CONNECTIONS);
 
 // -------------------------------------------------------
+// 패킷 전송 헬퍼
+// -------------------------------------------------------
+template<typename T>
+bool Send(DummyClient& client, T& pkt) {
+    if (!client.SendPacket(&pkt, sizeof(T))) {
+        ++g_sendErrors;
+        return false;
+    }
+    ++g_packetsSent;
+    g_bytesSent.fetch_add(sizeof(T), std::memory_order_relaxed);
+    return true;
+}
+
+// -------------------------------------------------------
 // 워커 스레드
-//   [페이즈 1] startId~endId 클라이언트를 순차 접속
-//   [페이즈 2] latch 해제 후 모든 소켓에 패킷 전송
+//   [페이즈 1] 접속
+//   [페이즈 2] 5단계 시나리오 실행
+//     1. PKT_Character  — 캐릭터 등록
+//     2. PKT_CharacterStat — 초기 스탯 전송
+//     3. PKT_EnterRoom  — 맵 기반 룸 입장
+//     4. 루프(SCENARIO_LOOPS): 맵 이동 + 30% 확률 아이템 획득
+//     5. PKT_LeaveRoom  — 룸 퇴장
 // -------------------------------------------------------
 void WorkerThread(int workerId, std::chrono::steady_clock::time_point testStart) {
-    int slice    = TARGET_CONNECTIONS / WORKER_THREADS;
-    int startId  = workerId * slice;
-    int endId    = (workerId == WORKER_THREADS - 1) ? TARGET_CONNECTIONS : startId + slice;
+    int slice   = TARGET_CONNECTIONS / WORKER_THREADS;
+    int startId = workerId * slice;
+    int endId   = (workerId == WORKER_THREADS - 1) ? TARGET_CONNECTIONS : startId + slice;
 
     std::vector<DummyClient> clients;
     clients.reserve(endId - startId);
 
     // ---- 페이즈 1: 접속 ----
     for (int clientId = startId; clientId < endId; ++clientId) {
-        // 절대시각 기준 대기 — sleep_for는 호출마다 누적되므로 사용 금지
         int batchIndex = clientId / BATCH_SIZE;
         auto batchTime = testStart + std::chrono::milliseconds(batchIndex * BATCH_DELAY_MS);
         std::this_thread::sleep_until(batchTime);
@@ -76,35 +99,93 @@ void WorkerThread(int workerId, std::chrono::steady_clock::time_point testStart)
         g_connectLatch.count_down();
     }
 
-    g_connectLatch.wait(); // 전체 접속 완료까지 대기
+    g_connectLatch.wait();
 
-    // ---- 페이즈 2: 패킷 전송 ----
+    // ---- 페이즈 2: 시나리오 실행 ----
     for (auto& client : clients) {
-        PKT_CharacterStat pkt{};
-        pkt.header.size  = static_cast<uint16_t>(sizeof(PKT_CharacterStat));
-        pkt.header.id    = PacketID::CHARACTER_STAT_INFO;
-        pkt.character_id = static_cast<uint64_t>(client.GetId() % 10) + 1;
-        pkt.hp_max       = 10000;
-        pkt.mp_max       = 5000;
-        pkt.is_alive     = Status::NORMAL;
-        pkt.last_map_id  = static_cast<uint32_t>(1 + (client.GetId() % 20));
+        std::mt19937 rng(static_cast<unsigned>(client.GetId()));
+        std::uniform_int_distribution<int> dropDist(0, 9);
 
-        for (int i = 0; i < PACKETS_PER_CLIENT; ++i) {
-            pkt.level = static_cast<uint32_t>(1 + (i % 100));
-            pkt.hp    = static_cast<uint32_t>(pkt.hp_max - (i * 10) % pkt.hp_max);
-            pkt.mp    = static_cast<uint32_t>(pkt.mp_max - (i * 5)  % pkt.mp_max);
+        uint64_t charId = static_cast<uint64_t>(client.GetId() % 10000) + 1;
+        uint32_t mapId  = static_cast<uint32_t>((client.GetId() % 20) + 1);
 
-            if (!client.SendPacket(&pkt, static_cast<int>(sizeof(pkt)))) {
-                ++g_sendErrors;
-                break;
+        // 1. 캐릭터 등록
+        PKT_Character charPkt{};
+        charPkt.header.size  = static_cast<uint16_t>(sizeof(PKT_Character));
+        charPkt.header.id    = PacketID::CHARACTER_INFO;
+        charPkt.character_id = charId;
+        charPkt.adventure_id = charId;
+        charPkt.guild_id     = 0;
+        charPkt.job_code     = static_cast<JobCode>(1 + (client.GetId() % 4));
+        std::snprintf(charPkt.nickname, sizeof(charPkt.nickname), "Player%d", client.GetId());
+        charPkt.state_code   = CharacterState::ALIVE;
+        if (!Send(client, charPkt)) continue;
+
+        // 2. 초기 스탯
+        PKT_CharacterStat statPkt{};
+        statPkt.header.size  = static_cast<uint16_t>(sizeof(PKT_CharacterStat));
+        statPkt.header.id    = PacketID::CHARACTER_STAT_INFO;
+        statPkt.character_id = charId;
+        statPkt.level        = 1;
+        statPkt.hp_max       = 10000;
+        statPkt.hp           = 10000;
+        statPkt.mp_max       = 5000;
+        statPkt.mp           = 5000;
+        statPkt.is_alive     = Status::NORMAL;
+        statPkt.last_map_id  = mapId;
+        if (!Send(client, statPkt)) continue;
+
+        // 3. 룸 입장
+        PKT_EnterRoom enterPkt{};
+        enterPkt.header.size  = static_cast<uint16_t>(sizeof(PKT_EnterRoom));
+        enterPkt.header.id    = PacketID::ENTER_ROOM;
+        enterPkt.character_id = charId;
+        enterPkt.map_id       = mapId;
+        if (!Send(client, enterPkt)) continue;
+
+        // 4. 행동 루프 — 맵 이동 + 아이템 획득
+        bool broken = false;
+        for (int i = 0; i < SCENARIO_LOOPS; ++i) {
+            statPkt.level       = static_cast<uint32_t>(1 + (i % 100));
+            statPkt.hp          = static_cast<uint32_t>(statPkt.hp_max - (i * 100) % statPkt.hp_max);
+            statPkt.mp          = static_cast<uint32_t>(statPkt.mp_max - (i * 50)  % statPkt.mp_max);
+            statPkt.last_map_id = static_cast<uint32_t>(1 + (i % 20));
+            if (!Send(client, statPkt)) { broken = true; break; }
+
+            if (dropDist(rng) < ITEM_DROP_CHANCE) {
+                PKT_ItemInstance itemPkt{};
+                itemPkt.header.size      = static_cast<uint16_t>(sizeof(PKT_ItemInstance));
+                itemPkt.header.id        = PacketID::ITEM_INSTANCE_INFO;
+                itemPkt.item_instance_id = static_cast<uint64_t>(client.GetId()) * 100 + i;
+                itemPkt.item_dict_id     = static_cast<uint32_t>(1 + (i % 10));
+                itemPkt.count            = 1;
+                itemPkt.enhance_level    = 0;
+                if (!Send(client, itemPkt)) { broken = true; break; }
+
+                PKT_Inventory invPkt{};
+                invPkt.header.size      = static_cast<uint16_t>(sizeof(PKT_Inventory));
+                invPkt.header.id        = PacketID::INVENTORY_INFO;
+                invPkt.character_id     = charId;
+                invPkt.tab_type         = TabType::USE;
+                invPkt.slot_index       = static_cast<uint32_t>(i % 64);
+                invPkt.item_instance_id = itemPkt.item_instance_id;
+                if (!Send(client, invPkt)) { broken = true; break; }
             }
-            ++g_packetsSent;
         }
+        if (broken) continue;
+
+        // 5. 룸 퇴장
+        PKT_LeaveRoom leavePkt{};
+        leavePkt.header.size  = static_cast<uint16_t>(sizeof(PKT_LeaveRoom));
+        leavePkt.header.id    = PacketID::LEAVE_ROOM;
+        leavePkt.character_id = charId;
+        leavePkt.map_id       = mapId;
+        Send(client, leavePkt);
     }
 }
 
 // -------------------------------------------------------
-// 모니터 스레드: 1초마다 실시간 현황 출력
+// 모니터 스레드
 // -------------------------------------------------------
 void MonitorThread(std::chrono::steady_clock::time_point testStart) {
     while (!g_done.load()) {
@@ -141,12 +222,12 @@ int main() {
         return 1;
     }
 
-    std::cout << "=== RPG 게임 서버 더미 클라이언트 ===\n";
+    std::cout << "=== RPG 게임 서버 더미 클라이언트 (행동 시뮬레이션) ===\n";
     std::cout << "서버           : " << SERVER_IP << ":" << SERVER_PORT << "\n";
     std::cout << "클라이언트     : " << TARGET_CONNECTIONS << "\n";
     std::cout << "워커 스레드    : " << WORKER_THREADS << "\n";
-    std::cout << "클라이언트당   : " << PACKETS_PER_CLIENT << " 패킷\n";
-    std::cout << "예상 총 패킷   : " << TARGET_CONNECTIONS * PACKETS_PER_CLIENT << "\n";
+    std::cout << "시나리오 루프  : " << SCENARIO_LOOPS << "회/클라이언트\n";
+    std::cout << "시나리오       : 캐릭터등록 -> 스탯 -> 룸입장 -> 이동+아이템(30%) -> 퇴장\n";
     std::cout << "---\n";
 
     auto testStart = std::chrono::steady_clock::now();
@@ -169,7 +250,7 @@ int main() {
 
     int     totalPkts  = g_packetsSent.load();
     double  pps        = elapsedMs > 0 ? (totalPkts * 1000.0 / elapsedMs) : 0.0;
-    int64_t totalBytes = static_cast<int64_t>(totalPkts) * sizeof(PKT_CharacterStat);
+    int64_t totalBytes = g_bytesSent.load();
 
     std::cout << "\n=== 최종 결과 ===\n";
     std::cout << std::fixed << std::setprecision(3);

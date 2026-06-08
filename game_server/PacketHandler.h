@@ -22,4 +22,6 @@ private:
     void OnItemInstance(std::shared_ptr<Session>, PKT_ItemInstance*);
     void OnInventory(std::shared_ptr<Session>, PKT_Inventory*);
     void OnAuction(std::shared_ptr<Session>, PKT_Auction*);
+    void OnEnterRoom(std::shared_ptr<Session>, PKT_EnterRoom*);
+    void OnLeaveRoom(std::shared_ptr<Session>, PKT_LeaveRoom*);
 };

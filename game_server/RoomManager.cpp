@@ -31,3 +31,18 @@ std::shared_ptr<Room> RoomManager::GetRoom(uint32_t roomId) {
     }
     return nullptr;
 }
+
+std::shared_ptr<Room> RoomManager::GetOrCreateRoom(uint32_t mapId) {
+    {
+        std::shared_lock lock(m_lock);
+        auto it = m_rooms.find(mapId);
+        if (it != m_rooms.end()) return it->second;
+    }
+    std::unique_lock lock(m_lock);
+    auto it = m_rooms.find(mapId);
+    if (it != m_rooms.end()) return it->second;
+    auto room = std::make_shared<Room>(mapId);
+    m_rooms[mapId] = room;
+    AsyncLogger::GetInstance().Log("Room 생성(맵 기반). MapID: " + std::to_string(mapId));
+    return room;
+}
