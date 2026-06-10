@@ -1,22 +1,46 @@
 const { createLogger, format, transports, Transport } = require('winston');
-const fs       = require('fs');
-const Anthropic = require('@anthropic-ai/sdk');
+const fs   = require('fs');
+const http = require('http');
 
 fs.mkdirSync('logs', { recursive: true });
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const LLM_ENDPOINT = process.env.LLM_ENDPOINT || 'http://localhost:1234/v1/chat/completions';
 
 async function analyzeError(message) {
-    try {
-        const response = await anthropic.messages.create({
-            model: 'claude-haiku-4-5-20251001',
+    return new Promise((resolve) => {
+        const body = JSON.stringify({
+            model: 'local-model',
             max_tokens: 512,
             messages: [{ role: 'user', content: `서버 에러 로그입니다. 원인과 조치 방법을 간략히 분석해주세요.\n\n${message}` }]
         });
-        return response.content[0].text;
-    } catch {
-        return null;
-    }
+
+        const url  = new URL(LLM_ENDPOINT);
+        const opts = {
+            hostname: url.hostname,
+            port:     url.port || 1234,
+            path:     url.pathname,
+            method:   'POST',
+            headers:  { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+        };
+
+        const req = http.request(opts, (res) => {
+            let raw = '';
+            res.on('data', chunk => raw += chunk);
+            res.on('end', () => {
+                try {
+                    const json = JSON.parse(raw);
+                    resolve(json.choices?.[0]?.message?.content ?? null);
+                } catch {
+                    resolve(null);
+                }
+            });
+        });
+
+        req.on('error', () => resolve(null));
+        req.setTimeout(10000, () => { req.destroy(); resolve(null); });
+        req.write(body);
+        req.end();
+    });
 }
 
 // 에러 폭발 시 API 과호출 방지
