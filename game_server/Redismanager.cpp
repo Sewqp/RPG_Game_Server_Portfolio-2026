@@ -28,7 +28,7 @@ std::string RedisManager::MakeCharacterStatKey(uint64_t characterId) const {
 }
 
 std::string RedisManager::MakeSessionKey(uint64_t sessionId) const {
-    return "session:" + std::to_string(sessionId);
+    return "game_session:" + std::to_string(sessionId);
 }
 
 bool RedisManager::SetCharacterStat(uint64_t characterId, const PKT_CharacterStat& stat) {
