@@ -7,11 +7,13 @@ const PORT = 3000;
 app.use(express.json());
 
 // [라우터 등록]
+const authRouter      = require('./routes/auth');
 const characterRouter = require('./routes/character');
 const auctionRouter   = require('./routes/auction');
 const adminRouter     = require('./routes/admin');
 const rankingRouter   = require('./routes/ranking');
 
+app.use(authRouter);
 app.use(characterRouter);
 app.use(auctionRouter);
 app.use(adminRouter);
