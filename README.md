@@ -123,6 +123,25 @@
 - 60초 쿨다운으로 에러 폭발 시 LLM 과호출 방지
 - `Configure()` API 추가 — LLM 엔드포인트 / 웹훅 미설정 시 파이프라인 자동 비활성화
 
+### UPDATE
+**2026-06-09**
+- 더미 클라이언트 행동 다양화 완료 (Phase 1)
+- PKT_EnterRoom(1008) / PKT_LeaveRoom(1009) C++ 서버 추가
+- RoomManager::GetOrCreateRoom(mapId) — double-checked locking으로 TOCTOU 해결
+- 더미클라 5단계 시나리오: 캐릭터등록 → 스탯 → 룸입장 → 이동+아이템(30%) → 퇴장
+- `g_bytesSent` atomic으로 실제 전송 바이트 정확 집계
+
+### UPDATE
+**2026-06-11**
+- Phase 2 인증 서버 구현 완료 (JWT + bcrypt + Redis 세션)
+  - `POST /auth/register` — bcrypt 해시 회원가입
+  - `POST /auth/login` — JWT 발급 + Redis 세션 저장 (TTL 3600)
+  - `POST /auth/logout` — Redis 세션 제거
+  - `middleware/authMiddleware.js` — JWT 검증 + Redis 세션 존재 확인
+  - `DB/users_table.sql` — users 테이블 추가
+- Redis 세션 키 충돌 수정 — `session:` → `game_session:` / `auth_session:` 분리
+- Node.js 에러 분석 LLM Anthropic API → 로컬 LM Studio 교체 (통일성)
+
 ---
 
 ## 시스템 아키텍처
@@ -225,7 +244,10 @@ Node.js 웹 서버
 ├── db.js                   ✅ 완성
 ├── redis.js                ✅ 완성
 ├── constants.js            ✅ 완성
+├── middleware/
+│   └── authMiddleware.js   ✅ 완성
 └── routes/
+    ├── auth.js             ✅ 완성
     ├── character.js        ✅ 완성
     ├── auction.js          ✅ 완성
     ├── admin.js            ✅ 완성
@@ -235,8 +257,8 @@ Node.js 웹 서버
 **진행률**
 ```
 C++       : 14 / 14 파일 완성 (100%)
-Node.js   :  8 /  8 파일 완성 (100%)
-전체      : 22 / 22 파일 완성 (100%)
+Node.js   : 10 / 10 파일 완성 (100%)
+전체      : 24 / 24 파일 완성 (100%)
 ```
 
 ---
@@ -245,8 +267,9 @@ Node.js   :  8 /  8 파일 완성 (100%)
 - [x] 더미 클라이언트 제작 (C++ 스레드 풀 기반)
 - [x] 10,000명 동시 접속 테스트 — 성공률 100%, 259,336 pkt/s
 - [x] LLM → Discord 에러 파이프라인 (AsyncLogger, WinHTTP)
-- [ ] 더미 클라이언트 행동 다양화 (실제 유저 시뮬레이션)
-- [ ] 인증 서버 구축 (JWT, bcrypt, Redis 세션)
+- [x] 더미 클라이언트 행동 다양화 — 5단계 시나리오, PKT_EnterRoom/LeaveRoom
+- [x] 인증 서버 구축 (JWT + bcrypt + Redis 세션, users 테이블)
+- [ ] 시연 영상 제작 (Phase 4)
 - [ ] 성능 최적화 (메모리 풀 등)
 
 ---
