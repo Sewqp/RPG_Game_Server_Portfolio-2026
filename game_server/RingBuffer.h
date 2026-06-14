@@ -7,7 +7,8 @@
 
 class RingBuffer {
 public:
-    static constexpr size_t BUFFER_SIZE = 16384;
+    static constexpr size_t BUFFER_SIZE    = 16384;
+    static constexpr size_t MAX_PACKET_SIZE = 512;
 
     bool Write(const char* data, size_t len);
     bool Peek(char* dest, size_t len) const;

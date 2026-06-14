@@ -76,8 +76,10 @@ std::optional<std::vector<char>> RingBuffer::TryAssemblePacket() {
     // [헤더의 size = 패킷 전체 크기]
     size_t totalSize = header.size;
 
-    if (totalSize < sizeof(PacketHeader))
-        return std::nullopt; // [잘못된 패킷 크기]
+    if (totalSize < sizeof(PacketHeader) || totalSize > MAX_PACKET_SIZE) {
+        Ignore(sizeof(PacketHeader));
+        return std::nullopt;
+    }
 
     if (m_dataSize < totalSize)
         return std::nullopt; // [아직 다 안 모임]
