@@ -21,7 +21,7 @@ public:
     bool GetSession(uint64_t sessionId, uint64_t& outCharacterId);
     bool DeleteSession(uint64_t sessionId);
 
-    std::vector<uint64_t> GetAllCachedCharacterIds();
+    std::vector<uint64_t> PopDirtyIds();
 
 private:
     RedisManager();
@@ -29,8 +29,9 @@ private:
     RedisManager(const RedisManager&) = delete;
     RedisManager& operator=(const RedisManager&) = delete;
 
-    static constexpr int DEFAULT_PORT   = 6379;
-    static constexpr int EXPIRE_SECONDS = 3600;
+    static constexpr int         DEFAULT_PORT    = 6379;
+    static constexpr int         EXPIRE_SECONDS  = 3600;
+    static constexpr const char* DIRTY_SET_KEY   = "dirty_characters";
 
     redisContext* m_context = nullptr;
     std::mutex    m_lock;

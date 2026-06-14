@@ -45,7 +45,7 @@ void SyncWorker::SyncLoop() {
 void SyncWorker::FlushAll() {
     AsyncLogger::GetInstance().Log("Redis → MySQL 동기화 시작");
 
-    auto ids = RedisManager::GetInstance().GetAllCachedCharacterIds();
+    auto ids = RedisManager::GetInstance().PopDirtyIds();
     int successCount = 0;
 
     for (uint64_t characterId : ids) {

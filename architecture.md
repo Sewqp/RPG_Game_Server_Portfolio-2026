@@ -16,7 +16,7 @@ flowchart TD
         DB_MGR["**DBManager**\nConnection Pool ×10\nMYSQL_STMT · 5 s timeout"]
         REDIS_MGR["**RedisManager**\nhiredis · character:stat:{id}\ngame_session:{id} · TTL 3600"]
         ROOM_MGR["**RoomManager**\nGetOrCreate · map_id key\nRoom MAX_PLAYERS = 4\nshared_mutex broadcast"]
-        SYNC["**SyncWorker**\n30 s periodic thread\nRedis SCAN → MySQL UPDATE"]
+        SYNC["**SyncWorker**\n30 s periodic thread\nSMEMBERS dirty_characters → DEL → MySQL UPDATE"]
         LOG["**AsyncLogger**\nDedicated logger thread\n60 s LLM cooldown\nWinHTTP · file + console"]
     end
 
@@ -32,7 +32,7 @@ flowchart TD
     end
 
     MySQL[("**MySQL 8.0**\nadventure · guild\ncharacter · character_stat\nitem_dictionary · item_instance\ninventory · auction")]
-    RedisDB[("**Redis 6.x**\ncharacter:stat:{id}\nauth_session:{id}\ngame_session:{id}")]
+    RedisDB[("**Redis 6.x**\ncharacter:stat:{id}\nauth_session:{id}\ngame_session:{id}\ndirty_characters (Set)")]
     LM["**LM Studio**\nlocalhost:1234\nOpenAI-compatible API"]
     Discord["**Discord Webhook**\nEmbed — error + LLM analysis"]
 
@@ -41,9 +41,9 @@ flowchart TD
     IocpCore -->|"WSARecv / WSASend\nOverlapped I/O"| Session
     Session -->|"TryAssemblePacket\nsize ≤ 512 B guard"| PH
     PH -->|"INSERT character\ninventory · auction"| DB_MGR
-    PH -->|"SET character:stat\ngame_session"| REDIS_MGR
+    PH -->|"SET character:stat\nSADD dirty_characters\ngame_session"| REDIS_MGR
     PH -->|"Enter / Leave\nBroadcast"| ROOM_MGR
-    SYNC -->|"SCAN character:stat:*\nGET → UPDATE"| REDIS_MGR
+    SYNC -->|"SMEMBERS dirty_characters\nDEL dirty_characters\nGET → UPDATE"| REDIS_MGR
     SYNC -->|"UpdateCharacterStat\nbatch every 30 s"| DB_MGR
     DB_MGR -->|"libmysql · pool ×10"| MySQL
     REDIS_MGR -->|"hiredis commands"| RedisDB
@@ -114,15 +114,19 @@ Session::OnRecvCompleted
   │  RingBuffer::TryAssemblePacket
   ▼
 PacketHandler::OnCharacterStat
-  │  RedisManager::SetCharacterStat("character:stat:{id}", binary, TTL=3600)
+  │  RedisManager::SetCharacterStat
+  │    SET  character:stat:{id}  binary  EX 3600
+  │    SADD dirty_characters     {id}
   ▼
 Redis  ←── hot path (sub-ms)
 
 SyncWorker (every 30 s)
-  │  RedisManager::GetAllCachedCharacterIds  [SCAN]
-  │  DBManager::UpdateCharacterStat          [MYSQL_STMT]
+  │  RedisManager::PopDirtyIds
+  │    SMEMBERS dirty_characters  → id 목록 수집
+  │    DEL      dirty_characters  → Set 초기화
+  │  DBManager::UpdateCharacterStat [MYSQL_STMT]
   ▼
-MySQL  ←── cold path (batch)
+MySQL  ←── cold path (변경된 캐릭터만 · O(dirty 수))
 ```
 
 ---
