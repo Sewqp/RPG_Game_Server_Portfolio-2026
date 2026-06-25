@@ -44,6 +44,12 @@ bool RedisManager::SetCharacterStat(uint64_t characterId, const PKT_CharacterSta
         return false;
     }
     freeReplyObject(reply);
+
+    redisReply* saddReply = reinterpret_cast<redisReply*>(
+        redisCommand(m_context, "SADD %s %s",
+            DIRTY_SET_KEY, std::to_string(characterId).c_str()));
+    freeReplyObject(saddReply);
+
     return true;
 }
 
@@ -111,28 +117,25 @@ bool RedisManager::DeleteSession(uint64_t sessionId) {
     return true;
 }
 
-std::vector<uint64_t> RedisManager::GetAllCachedCharacterIds() {
+std::vector<uint64_t> RedisManager::PopDirtyIds() {
     std::lock_guard<std::mutex> lock(m_lock);
     std::vector<uint64_t> ids;
 
-    long long cursor = 0;
-    do {
-        redisReply* reply = reinterpret_cast<redisReply*>(
-            redisCommand(m_context, "SCAN %lld MATCH character:stat:* COUNT 100", cursor));
-        if (!reply || reply->type != REDIS_REPLY_ARRAY || reply->elements < 2) {
-            if (reply) freeReplyObject(reply);
-            break;
-        }
-        cursor = std::stoll(reply->element[0]->str);
-        redisReply* keyList = reply->element[1];
-        // "character:stat:" = 15 chars
-        for (size_t i = 0; i < keyList->elements; ++i) {
-            std::string key(keyList->element[i]->str);
-            if (key.size() > 15)
-                ids.push_back(std::stoull(key.substr(15)));
-        }
-        freeReplyObject(reply);
-    } while (cursor != 0);
+    redisReply* reply = reinterpret_cast<redisReply*>(
+        redisCommand(m_context, "SMEMBERS %s", DIRTY_SET_KEY));
+    if (!reply || reply->type != REDIS_REPLY_ARRAY) {
+        if (reply) freeReplyObject(reply);
+        return ids;
+    }
+
+    ids.reserve(reply->elements);
+    for (size_t i = 0; i < reply->elements; ++i)
+        ids.push_back(std::stoull(reply->element[i]->str));
+    freeReplyObject(reply);
+
+    redisReply* delReply = reinterpret_cast<redisReply*>(
+        redisCommand(m_context, "DEL %s", DIRTY_SET_KEY));
+    freeReplyObject(delReply);
 
     return ids;
 }
