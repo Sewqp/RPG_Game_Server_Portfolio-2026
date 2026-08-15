@@ -1,4 +1,4 @@
-﻿#include <atomic>
+#include <atomic>
 #include <thread>
 #include <winsock2.h>
 #include "AsyncLogger.h"

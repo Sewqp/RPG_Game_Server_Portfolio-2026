@@ -203,11 +203,11 @@ void AsyncLogger::SendToDiscord(const std::string& error,
     std::string a = analysis.size() > 800 ? analysis.substr(0, 800) + "..." : analysis;
 
     std::string payload =
-        "{\"embeds\":[{"
-        "\"title\":\"\\u26a0\\ufe0f \\uac8c\\uc784 \\uc11c\\ubc84 \\uc5d0\\ub7ec \\uac10\\uc9c0\","
-        "\"description\":\"**\\uc5d0\\ub7ec:**\\n" + JsonEscape(e) +
-        "\\n\\n**LLM \\ubd84\\uc11d:**\\n" + JsonEscape(a) + "\","
-        "\"color\":15548997}]}";
+        u8"{\"embeds\":[{"
+        u8"\"title\":\"게임 서버 에러 감지\","
+        u8"\"description\":\"**에러:**\\n" + JsonEscape(e) +
+        u8"\\n\\n**LLM 분석:**\\n" + JsonEscape(a) + u8"\","
+        u8"\"color\":15548997}]}";
 
     WinHttpPost(m_discordWebhook, payload);
 }

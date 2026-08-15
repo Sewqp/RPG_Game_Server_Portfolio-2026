@@ -1,4 +1,4 @@
-﻿#include "RingBuffer.h"
+#include "RingBuffer.h"
 #include <cstring>
 #include <algorithm>
 

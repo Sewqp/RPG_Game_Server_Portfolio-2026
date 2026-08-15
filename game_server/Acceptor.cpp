@@ -1,4 +1,4 @@
-﻿#include "Acceptor.h"
+#include "Acceptor.h"
 #include "IocpCore.h"
 #include "Session.h"
 #include "SessionManager.h"
